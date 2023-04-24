@@ -38,9 +38,9 @@ def process_patient(infile, encounter_dict, min_length_of_stay=0):
         if count % 100 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        patient_id = line['subject_id']
-        encounter_id = line['hadm_id']
-        encounter_timestamp = line['admittime']
+        patient_id = line['SUBJECT_ID']
+        encounter_id = line['HADM_ID']
+        encounter_timestamp = line['ADMITTIME']
         if patient_id not in patient_dict:
             patient_dict[patient_id] = []
         patient_dict[patient_id].append((encounter_timestamp, encounter_id))
@@ -58,12 +58,12 @@ def process_patient(infile, encounter_dict, min_length_of_stay=0):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        patient_id = line['subject_id']
-        encounter_id = line['hadm_id']
+        patient_id = line['SUBJECT_ID']
+        encounter_id = line['HADM_ID']
         encounter_timestamp = datetime.strptime(
-            line['admittime'], '%Y-%m-%d %H:%M:%S')
-        expired = line['hospital_expire_flag'] == "1"
-        if (datetime.strptime(line['dischtime'], '%Y-%m-%d %H:%M:%S') - encounter_timestamp).days < min_length_of_stay:
+            line['ADMITTIME'], '%Y-%m-%d %H:%M:%S')
+        expired = line['HOSPITAL_EXPIRE_FLAG'] == "1"
+        if (datetime.strptime(line['DISCHTIME'], '%Y-%m-%d %H:%M:%S') - encounter_timestamp).days < min_length_of_stay:
             continue
 
         ei = EncounterInfo(patient_id, encounter_id,
@@ -87,8 +87,8 @@ def process_diagnosis(infile, encounter_dict):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['hadm_id']
-        dx_id = line['icd9_code'].lower()
+        encounter_id = line['HADM_ID']
+        dx_id = line['ICD9_CODE'].lower()
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
@@ -108,8 +108,8 @@ def process_treatment(infile, encounter_dict):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['hadm_id']
-        treatment_id = line['icd9_code'].lower()
+        encounter_id = line['HADM_ID']
+        treatment_id = line['ICD9_CODE'].lower()
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
@@ -123,15 +123,15 @@ def process_treatment(infile, encounter_dict):
 
 def get_lab_mean_std(lab_file, train_ids):
     lab_data = pd.read_csv(lab_file)
-    lab_data = lab_data[(lab_data['subject_id'].astype('str') + ':' +
-                         lab_data['hadm_id'].apply(lambda x: f'{x:.0f}')).isin(train_ids)]
-    lab_data = lab_data[lab_data.valuenum.notna()]
-    mean_std = lab_data.groupby('itemid').agg(
-        {'valuenum': ['mean', "std"]}).reset_index()
-    mean_std = mean_std[mean_std.valuenum['mean'].notna() &
-                        mean_std.valuenum['std'].notna()]
-    mean_std = dict(zip(np.array(mean_std['itemid']).astype('str'),
-                        [(row['valuenum']['mean'], row['valuenum']['std'])
+    lab_data = lab_data[(lab_data['SUBJECT_ID'].astype('str') + ':' +
+                         lab_data['HADM_ID'].apply(lambda x: f'{x:.0f}')).isin(train_ids)]
+    lab_data = lab_data[lab_data.VALUENUM.notna()]
+    mean_std = lab_data.groupby('ITEMID').agg(
+        {'VALUENUM': ['mean', "std"]}).reset_index()
+    mean_std = mean_std[mean_std.VALUENUM['mean'].notna() &
+                        mean_std.VALUENUM['std'].notna()]
+    mean_std = dict(zip(np.array(mean_std['ITEMID']).astype('str'),
+                        [(row['VALUENUM']['mean'], row['VALUENUM']['std'])
                          for _, row in mean_std.iterrows()]))
     return mean_std
 
@@ -144,17 +144,17 @@ def process_lab(infile, encounter_dict, mean_std):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['hadm_id']
+        encounter_id = line['HADM_ID']
         if len(encounter_id) == 0:
             continue
-        lab_id = line['itemid'].lower()
-        lab_time = datetime.strptime(line['charttime'], '%Y-%m-%d %H:%M:%S')
+        lab_id = line['ITEMID'].lower()
+        lab_time = datetime.strptime(line['CHARTTIME'], '%Y-%m-%d %H:%M:%S')
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
         if lab_id in mean_std:
             try:
-                lab_value = float(line['valuenum'])
+                lab_value = float(line['VALUENUM'])
             except:
                 missing_eid += 1
                 continue
@@ -333,13 +333,13 @@ def get_partitions(seqex_list, id_set=None):
 
 def parser_fn(serialized_example):
     context_features_config = {
-        'patientId': tf.io.VarLenFeature(tf.string),
-        'label': tf.io.FixedLenFeature([1], tf.int64),
+        'patientId': tf.VarLenFeature(tf.string),
+        'label': tf.FixedLenFeature([1], tf.int64),
     }
     sequence_features_config = {
-        'dx_ints': tf.io.VarLenFeature(tf.int64),
-        'proc_ints': tf.io.VarLenFeature(tf.int64),
-        'lab_ints': tf.io.VarLenFeature(tf.int64)
+        'dx_ints': tf.VarLenFeature(tf.int64),
+        'proc_ints': tf.VarLenFeature(tf.int64),
+        'lab_ints': tf.VarLenFeature(tf.int64)
     }
     (batch_context, batch_sequence) = tf.io.parse_single_sequence_example(
         serialized_example,
