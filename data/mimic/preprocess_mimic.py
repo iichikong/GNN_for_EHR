@@ -333,13 +333,13 @@ def get_partitions(seqex_list, id_set=None):
 
 def parser_fn(serialized_example):
     context_features_config = {
-        'patientId': tf.VarLenFeature(tf.string),
-        'label': tf.FixedLenFeature([1], tf.int64),
+        'patientId': tf.io.VarLenFeature(tf.string),
+        'label': tf.io.FixedLenFeature([1], tf.int64),
     }
     sequence_features_config = {
-        'dx_ints': tf.VarLenFeature(tf.int64),
-        'proc_ints': tf.VarLenFeature(tf.int64),
-        'lab_ints': tf.VarLenFeature(tf.int64)
+        'dx_ints': tf.io.VarLenFeature(tf.int64),
+        'proc_ints': tf.io.VarLenFeature(tf.int64),
+        'lab_ints': tf.io.VarLenFeature(tf.int64)
     }
     (batch_context, batch_sequence) = tf.io.parse_single_sequence_example(
         serialized_example,
@@ -428,7 +428,7 @@ def main():
         for seqex in test_seqex:
             writer.write(seqex.SerializeToString())
     for partition in ['train', 'validation', 'test']:
-        tf2csr(output_path, partition, [dx_map, proc_map, lab_map])
+        tf2csr(output_path+'/', partition, [dx_map, proc_map, lab_map])
     print('done')
 
 

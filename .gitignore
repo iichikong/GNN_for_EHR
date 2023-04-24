@@ -1,0 +1,7 @@
+/data/mimic/post_data
+/data/mimic/pre_data
+/data/eicu/post_data
+/data/eicu/pre_data
+/__pycache__
+*.err
+*.out
