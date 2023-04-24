@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=pre_mimic
-#SBATCH --output=/%j_%x.out
-#SBATCH --error=/%j_%x.err
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=2
+#SBATCH --output=%j_%x.out
+#SBATCH --error=%j_%x.err
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=2GB
 #SBATCH --time=10:00:00
