@@ -3,17 +3,17 @@ This code is adapted from process steps on eICU of previous works (cited)
 https://github.com/Google-Health/records-research/tree/master/graph-convolutional-transformer
 '''
 
+from scipy.sparse import csr_matrix
+import numpy as np
+from datetime import datetime
+import argparse
+from sklearn import model_selection
+import pickle
+import sys
 import pandas as pd
 import csv
 import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
-import sys
-import pickle
-from sklearn import model_selection
-import argparse
-from datetime import datetime
-import numpy as np
-from scipy.sparse import csr_matrix
 
 
 class EncounterInfo(object):
@@ -38,9 +38,9 @@ def process_patient(infile, encounter_dict, min_length_of_stay=0):
         if count % 100 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        patient_id = line['SUBJECT_ID']
-        encounter_id = line['HADM_ID']
-        encounter_timestamp = line['ADMITTIME']
+        patient_id = line['subject_id']
+        encounter_id = line['hadm_id']
+        encounter_timestamp = line['admittime']
         if patient_id not in patient_dict:
             patient_dict[patient_id] = []
         patient_dict[patient_id].append((encounter_timestamp, encounter_id))
@@ -58,14 +58,16 @@ def process_patient(infile, encounter_dict, min_length_of_stay=0):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        patient_id = line['SUBJECT_ID']
-        encounter_id = line['HADM_ID']
-        encounter_timestamp = datetime.strptime(line['ADMITTIME'], '%Y-%m-%d %H:%M:%S')
-        expired = line['HOSPITAL_EXPIRE_FLAG'] == "1"
-        if (datetime.strptime(line['DISCHTIME'], '%Y-%m-%d %H:%M:%S') - encounter_timestamp).days < min_length_of_stay:
+        patient_id = line['subject_id']
+        encounter_id = line['hadm_id']
+        encounter_timestamp = datetime.strptime(
+            line['admittime'], '%Y-%m-%d %H:%M:%S')
+        expired = line['hospital_expire_flag'] == "1"
+        if (datetime.strptime(line['dischtime'], '%Y-%m-%d %H:%M:%S') - encounter_timestamp).days < min_length_of_stay:
             continue
 
-        ei = EncounterInfo(patient_id, encounter_id, encounter_timestamp, expired)
+        ei = EncounterInfo(patient_id, encounter_id,
+                           encounter_timestamp, expired)
         if encounter_id in encounter_dict:
             print('Duplicate encounter ID!!')
             print(encounter_id)
@@ -85,8 +87,8 @@ def process_diagnosis(infile, encounter_dict):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['HADM_ID']
-        dx_id = line['ICD9_CODE'].lower()
+        encounter_id = line['hadm_id']
+        dx_id = line['icd9_code'].lower()
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
@@ -106,8 +108,8 @@ def process_treatment(infile, encounter_dict):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['HADM_ID']
-        treatment_id = line['ICD9_CODE'].lower()
+        encounter_id = line['hadm_id']
+        treatment_id = line['icd9_code'].lower()
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
@@ -121,13 +123,15 @@ def process_treatment(infile, encounter_dict):
 
 def get_lab_mean_std(lab_file, train_ids):
     lab_data = pd.read_csv(lab_file)
-    lab_data = lab_data[(lab_data['SUBJECT_ID'].astype('str') + ':' +
-         lab_data['HADM_ID'].apply(lambda x: f'{x:.0f}')).isin(train_ids)]
-    lab_data = lab_data[lab_data.VALUENUM.notna()]
-    mean_std = lab_data.groupby('ITEMID').agg({'VALUENUM': ['mean', "std"]}).reset_index()
-    mean_std = mean_std[mean_std.VALUENUM['mean'].notna() & mean_std.VALUENUM['std'].notna()]
-    mean_std = dict(zip(np.array(mean_std['ITEMID']).astype('str'),
-                        [(row['VALUENUM']['mean'], row['VALUENUM']['std'])
+    lab_data = lab_data[(lab_data['subject_id'].astype('str') + ':' +
+                         lab_data['hadm_id'].apply(lambda x: f'{x:.0f}')).isin(train_ids)]
+    lab_data = lab_data[lab_data.valuenum.notna()]
+    mean_std = lab_data.groupby('itemid').agg(
+        {'valuenum': ['mean', "std"]}).reset_index()
+    mean_std = mean_std[mean_std.valuenum['mean'].notna() &
+                        mean_std.valuenum['std'].notna()]
+    mean_std = dict(zip(np.array(mean_std['itemid']).astype('str'),
+                        [(row['valuenum']['mean'], row['valuenum']['std'])
                          for _, row in mean_std.iterrows()]))
     return mean_std
 
@@ -140,17 +144,17 @@ def process_lab(infile, encounter_dict, mean_std):
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
-        encounter_id = line['HADM_ID']
+        encounter_id = line['hadm_id']
         if len(encounter_id) == 0:
             continue
-        lab_id = line['ITEMID'].lower()
-        lab_time = datetime.strptime(line['CHARTTIME'], '%Y-%m-%d %H:%M:%S')
+        lab_id = line['itemid'].lower()
+        lab_time = datetime.strptime(line['charttime'], '%Y-%m-%d %H:%M:%S')
         if encounter_id not in encounter_dict:
             missing_eid += 1
             continue
         if lab_id in mean_std:
             try:
-                lab_value = float(line['VALUENUM'])
+                lab_value = float(line['valuenum'])
             except:
                 missing_eid += 1
                 continue
@@ -256,21 +260,25 @@ def build_seqex(enc_dict,
             seqex.context.feature['label'].int64_list.value.append(0)
 
         dx_ids = seqex.feature_lists.feature_list['dx_ids']
-        dx_ids.feature.add().bytes_list.value.extend(list([bytes(s, 'utf-8') for s in set(enc.dx_ids)]))
+        dx_ids.feature.add().bytes_list.value.extend(
+            list([bytes(s, 'utf-8') for s in set(enc.dx_ids)]))
 
         dx_int_list = [dx_str2int[item] for item in list(set(enc.dx_ids))]
         dx_ints = seqex.feature_lists.feature_list['dx_ints']
         dx_ints.feature.add().int64_list.value.extend(dx_int_list)
 
         proc_ids = seqex.feature_lists.feature_list['proc_ids']
-        proc_ids.feature.add().bytes_list.value.extend(list([bytes(s, 'utf-8') for s in set(enc.treatments)]))
+        proc_ids.feature.add().bytes_list.value.extend(
+            list([bytes(s, 'utf-8') for s in set(enc.treatments)]))
 
-        proc_int_list = [treat_str2int[item] for item in list(set(enc.treatments))]
+        proc_int_list = [treat_str2int[item]
+                         for item in list(set(enc.treatments))]
         proc_ints = seqex.feature_lists.feature_list['proc_ints']
         proc_ints.feature.add().int64_list.value.extend(proc_int_list)
 
         lab_ids = seqex.feature_lists.feature_list['lab_ids']
-        lab_ids.feature.add().bytes_list.value.extend(list([bytes(s, 'utf-8') for s in set(enc.labvalues)]))
+        lab_ids.feature.add().bytes_list.value.extend(
+            list([bytes(s, 'utf-8') for s in set(enc.labvalues)]))
 
         lab_int_list = [lab_str2int[item] for item in list(set(enc.labvalues))]
         lab_ints = seqex.feature_lists.feature_list['lab_ints']
@@ -284,9 +292,10 @@ def build_seqex(enc_dict,
     print('Filtered encounters due to thresholding: %d' % num_cut)
     print('Average num_dx_ids: %f' % (num_dx_ids / count))
     print('Average num_treatments: %f' % (num_treatments / count))
-    print('Average num_labs: %f' % (num_labs/ count))
+    print('Average num_labs: %f' % (num_labs / count))
     print('Average num_unique_dx_ids: %f' % (num_unique_dx_ids / count))
-    print('Average num_unique_treatments: %f' % (num_unique_treatments / count))
+    print('Average num_unique_treatments: %f' %
+          (num_unique_treatments / count))
     print('Average num_unique_labs: %f' % (num_unique_labs / count))
     print('Min dx cut: %d' % min_dx_cut)
     print('Min treatment cut: %d' % min_treatment_cut)
@@ -299,8 +308,10 @@ def build_seqex(enc_dict,
 
 
 def train_val_test_split(patient_ids, random_seed=0):
-    train_ids, test_ids = model_selection.train_test_split(patient_ids, test_size=0.2, random_state=random_seed)
-    test_ids, val_ids = model_selection.train_test_split(test_ids, test_size=0.5, random_state=random_seed)
+    train_ids, test_ids = model_selection.train_test_split(
+        patient_ids, test_size=0.2, random_state=random_seed)
+    test_ids, val_ids = model_selection.train_test_split(
+        test_ids, test_size=0.5, random_state=random_seed)
     return train_ids, val_ids, test_ids
 
 
@@ -311,7 +322,8 @@ def get_partitions(seqex_list, id_set=None):
         if total_visit % 1000 == 0:
             sys.stdout.write('Visit count: %d\r' % total_visit)
             sys.stdout.flush()
-        key = seqex.context.feature['patientId'].bytes_list.value[0].decode('utf-8')
+        key = seqex.context.feature['patientId'].bytes_list.value[0].decode(
+            'utf-8')
         if (id_set is not None and key not in id_set):
             total_visit += 1
             continue
@@ -321,13 +333,13 @@ def get_partitions(seqex_list, id_set=None):
 
 def parser_fn(serialized_example):
     context_features_config = {
-        'patientId': tf.VarLenFeature(tf.string),
-        'label': tf.FixedLenFeature([1], tf.int64),
+        'patientId': tf.io.VarLenFeature(tf.string),
+        'label': tf.io.FixedLenFeature([1], tf.int64),
     }
     sequence_features_config = {
-        'dx_ints': tf.VarLenFeature(tf.int64),
-        'proc_ints': tf.VarLenFeature(tf.int64),
-        'lab_ints': tf.VarLenFeature(tf.int64)
+        'dx_ints': tf.io.VarLenFeature(tf.int64),
+        'proc_ints': tf.io.VarLenFeature(tf.int64),
+        'lab_ints': tf.io.VarLenFeature(tf.int64)
     }
     (batch_context, batch_sequence) = tf.io.parse_single_sequence_example(
         serialized_example,
@@ -354,9 +366,9 @@ def tf2csr(output_path, partition, maps):
         np_datum = np.zeros(sum([len(m) for m in maps]))
         dx_pos = tf.sparse.to_dense(data[0]['dx_ints']).numpy().ravel()
         proc_pos = tf.sparse.to_dense(data[0]['proc_ints']).numpy().ravel() + \
-                   sum([len(m) for m in maps[:1]])
+            sum([len(m) for m in maps[:1]])
         lab_pos = tf.sparse.to_dense(data[0]['lab_ints']).numpy().ravel() + \
-                  sum([len(m) for m in maps[:2]])
+            sum([len(m) for m in maps[:2]])
         np_datum[dx_pos] = 1
         np_datum[proc_pos] = 1
         np_datum[lab_pos] = 1
@@ -364,7 +376,7 @@ def tf2csr(output_path, partition, maps):
         np_label.append(data[1].numpy()[0])
         sys.stdout.write('%d\r' % count)
         sys.stdout.flush()
-    pickle.dump((csr_matrix(np.array(np_data)), np.array(np_label)), \
+    pickle.dump((csr_matrix(np.array(np_data)), np.array(np_label)),
                 open(output_path + partition + '_csr.pkl', 'wb'))
 
 
@@ -375,8 +387,10 @@ Set <output_path> to where you want the output files to be.
 
 def main():
     parser = argparse.ArgumentParser(description='File path')
-    parser.add_argument('--input_path', type=str, default='.', help='input path of original dataset')
-    parser.add_argument('--output_path', type=str, default='.', help='output path of processed dataset')
+    parser.add_argument('--input_path', type=str, default='.',
+                        help='input path of original dataset')
+    parser.add_argument('--output_path', type=str, default='.',
+                        help='output path of processed dataset')
     args = parser.parse_args()
     input_path = args.input_path
     output_path = args.output_path
@@ -389,7 +403,7 @@ def main():
     encounter_dict = process_diagnosis(diagnosis_file, encounter_dict)
     encounter_dict = process_treatment(treatment_file, encounter_dict)
     patient_ids = np.array([(encounter_dict[key].patient_id + ':'
-                    + encounter_dict[key].encounter_id) for key in encounter_dict])
+                             + encounter_dict[key].encounter_id) for key in encounter_dict])
     train_ids, val_ids, test_ids = train_val_test_split(patient_ids)
     mean_std = get_lab_mean_std(lab_file, train_ids)
     encounter_dict = process_lab(lab_file, encounter_dict, mean_std)
