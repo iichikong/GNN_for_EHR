@@ -1,10 +1,8 @@
-#!/bin/bash
 #SBATCH --job-name=pre_mimic
 #SBATCH --output=%j_%x.out
 #SBATCH --error=%j_%x.err
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:v100:1
 #SBATCH --mem=2GB
 #SBATCH --time=10:00:00
 #SBATCH --mail-type=END
