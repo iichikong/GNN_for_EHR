@@ -1,4 +1,3 @@
-#!/bin/bash
 #SBATCH --job-name=pre_mimic
 #SBATCH --output=%j_%x.out
 #SBATCH --error=%j_%x.err
